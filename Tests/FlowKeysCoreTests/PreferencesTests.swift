@@ -76,3 +76,56 @@ final class PreferencesTests: XCTestCase {
         XCTAssertNil(Preferences.load(from: defaults).forgetAfter)
     }
 }
+
+/// Delivery-method preferences. These exist because Microsoft Word ignored
+/// the synthetic ⌘V that works everywhere else, so both the method and the
+/// clipboard-restore window had to become user-tunable.
+final class PasteMethodPreferenceTests: XCTestCase {
+
+    private var defaults: UserDefaults!
+    private var suiteName: String!
+
+    override func setUp() {
+        super.setUp()
+        suiteName = "flowkeys-paste-\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suiteName)
+    }
+
+    override func tearDown() {
+        defaults.removePersistentDomain(forName: suiteName)
+        super.tearDown()
+    }
+
+    func testDefaultsToKeystroke() {
+        XCTAssertEqual(Preferences.load(from: defaults).pasteMethod, .keystroke)
+    }
+
+    func testPasteMethodRoundTrips() {
+        var prefs = Preferences.default
+        prefs.pasteMethod = .typed
+        prefs.save(to: defaults)
+        XCTAssertEqual(Preferences.load(from: defaults).pasteMethod, .typed)
+    }
+
+    func testUnknownStoredMethodFallsBackToDefault() {
+        defaults.set("carrier-pigeon", forKey: "pasteMethod")
+        XCTAssertEqual(Preferences.load(from: defaults).pasteMethod, .keystroke)
+    }
+
+    func testRestoreDelayRoundTripsAndClamps() {
+        var prefs = Preferences.default
+        prefs.restoreDelay = 0.9
+        prefs.save(to: defaults)
+        XCTAssertEqual(Preferences.load(from: defaults).restoreDelay, 0.9, accuracy: 0.0001)
+
+        defaults.set(99.0, forKey: "restoreDelay")
+        XCTAssertEqual(Preferences.load(from: defaults).restoreDelay,
+                       Preferences.restoreDelayRange.upperBound)
+    }
+
+    func testEveryMethodHasATitle() {
+        for method in PasteMethod.allCases {
+            XCTAssertFalse(method.title.isEmpty)
+        }
+    }
+}

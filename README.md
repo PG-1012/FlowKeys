@@ -101,6 +101,17 @@ rm -rf ~/Library/Developer/Xcode/DerivedData/FlowKeys-*
 make install && open /Applications/FlowKeys.app
 ```
 
+**An app shows the list but nothing pastes** (Microsoft Word is the known
+case). Some apps track modifier state from `flagsChanged` events rather than
+reading each event's flags. FlowKeys posts a full ⌘-down / V / ⌘-up sequence
+for exactly this reason, but if an app still ignores it, switch
+**Settings → Pasting → Deliver text by → Type the text**. That synthesizes the
+characters directly and does not depend on the app's paste handling at all.
+
+**An app pastes the previous item instead of the one you chose.** It reads the
+clipboard lazily, after FlowKeys has already restored your previous contents.
+Raise **Settings → Pasting → Restore after**, or turn the restore off.
+
 **The menu says it needs Accessibility access but you granted it.** You
 probably have stale entries from builds at other paths. `make
 reset-permission` clears them; grant once more afterwards.
@@ -156,7 +167,7 @@ The interaction logic lives in `FlowKeysCore` with no AppKit imports, so the
 behaviour can be tested without a running app or any permissions:
 
 ```bash
-make test        # 54 tests
+make test        # 59 tests
 ```
 
 CI runs the suite, a release build and a bundle verification on every push.
@@ -205,10 +216,9 @@ Rough edges worth knowing about:
   signature, and an ad-hoc signature changes on every rebuild. So a rebuild
   orphans the old grant *and* leaves a stale duplicate entry in System
   Settings. Run `make reset-permission` to clear both, then grant once more.
-- **The clipboard-restore delay is a guess.** After pasting, FlowKeys waits
-  250ms before restoring your previous clipboard. Too short and a slow app
-  reads an empty pasteboard. Every clipboard manager makes this trade-off;
-  the number may need tuning.
+- **Delivery is app-dependent.** Synthetic ⌘V works nearly everywhere, but
+  some apps ignore it; the "Type the text" method is the fallback. The
+  clipboard-restore window is likewise a timing guess and is now adjustable.
 - **No signed release build.** Distributing a `.app` others can open without
   Gatekeeper warnings needs a paid Apple Developer account for notarization.
   Until then, building from source is the supported path.

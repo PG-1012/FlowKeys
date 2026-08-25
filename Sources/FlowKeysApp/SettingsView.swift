@@ -54,6 +54,26 @@ struct SettingsView: View {
         )
     }
 
+    private var pasteMethod: Binding<PasteMethod> {
+        Binding(
+            get: { preferences.pasteMethod },
+            set: { newValue in
+                preferences.pasteMethod = newValue
+                push()
+            }
+        )
+    }
+
+    private var restoreDelay: Binding<Double> {
+        Binding(
+            get: { preferences.restoreDelay },
+            set: { newValue in
+                preferences.restoreDelay = newValue
+                push()
+            }
+        )
+    }
+
     private var restoreClipboard: Binding<Bool> {
         Binding(
             get: { preferences.restoreClipboardAfterPaste },
@@ -122,7 +142,35 @@ struct SettingsView: View {
             }
             caption("How long to hold ⌘V before the list appears on its own. A quick tap still pastes instantly.")
 
+            Picker("Deliver text by", selection: pasteMethod) {
+                ForEach(PasteMethod.allCases, id: \.self) { method in
+                    Text(method.title).tag(method)
+                }
+            }
+            caption(pasteMethodHelp)
+
             Toggle("Restore previous clipboard after pasting", isOn: restoreClipboard)
+
+            if preferences.restoreClipboardAfterPaste && preferences.pasteMethod == .keystroke {
+                LabeledContent("Restore after") {
+                    HStack {
+                        Slider(value: restoreDelay, in: restoreBounds)
+                        Text(restoreLabel)
+                            .monospacedDigit()
+                            .frame(width: 70, alignment: .trailing)
+                    }
+                }
+                caption("Increase this if an app pastes the wrong item — some apps read the clipboard lazily.")
+            }
+        }
+    }
+
+    private var pasteMethodHelp: String {
+        switch preferences.pasteMethod {
+        case .keystroke:
+            return "Fastest, and keeps formatting the app would normally apply. If an app ignores it — Microsoft Word sometimes does — try typing instead."
+        case .typed:
+            return "Types the characters directly. Slower and plain text only, but works in apps that ignore a synthetic ⌘V. Your clipboard is left untouched."
         }
     }
 
@@ -146,6 +194,14 @@ struct SettingsView: View {
 
     private var delayBounds: ClosedRange<Double> {
         Preferences.revealDelayRange
+    }
+
+    private var restoreBounds: ClosedRange<Double> {
+        Preferences.restoreDelayRange
+    }
+
+    private var restoreLabel: String {
+        String(format: "%.2fs", preferences.restoreDelay)
     }
 
     private var delayLabel: String {

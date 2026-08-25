@@ -1,6 +1,25 @@
 import Foundation
 
 /// User-tunable behaviour. Kept in Core so tests can construct it freely.
+/// How the chosen text actually reaches the target app.
+public enum PasteMethod: String, CaseIterable, Sendable {
+    /// Put the text on the pasteboard and synthesize ⌘V. Fast, preserves
+    /// whatever the app does with paste, and works nearly everywhere.
+    case keystroke
+    /// Synthesize the characters directly. Slower and plain-text only, but it
+    /// does not depend on the target app's paste handling at all -- the
+    /// escape hatch for apps that ignore synthetic ⌘V.
+    case typed
+
+    public var title: String {
+        switch self {
+        case .keystroke: return "Paste (⌘V)"
+        case .typed: return "Type the text"
+        }
+    }
+}
+
+
 public struct Preferences: Equatable, Sendable {
     /// How many entries to keep.
     public var historyCapacity: Int
@@ -12,6 +31,12 @@ public struct Preferences: Equatable, Sendable {
     public var restoreClipboardAfterPaste: Bool
     /// Persist history across launches.
     public var persistHistory: Bool
+    /// How to deliver the text. See `PasteMethod`.
+    public var pasteMethod: PasteMethod = .keystroke
+    /// How long to wait before restoring the previous clipboard. Apps that
+    /// read the pasteboard lazily (Microsoft Word is the usual example) need
+    /// a longer window than the default.
+    public var restoreDelay: TimeInterval = 0.35
 
     public init(
         historyCapacity: Int = 50,
@@ -40,7 +65,11 @@ public struct Preferences: Equatable, Sendable {
         static let restore = "restoreClipboardAfterPaste"
         static let persist = "persistHistory"
         static let forgetAfterDays = "forgetAfterDays"
+        static let pasteMethod = "pasteMethod"
+        static let restoreDelay = "restoreDelay"
     }
+
+    public static let restoreDelayRange = 0.1...1.5
 
     /// 0 means "never forget".
     public var forgetAfterDays: Int = 0
@@ -66,6 +95,14 @@ public struct Preferences: Equatable, Sendable {
             prefs.persistHistory = defaults.bool(forKey: Key.persist)
         }
         prefs.forgetAfterDays = max(0, defaults.integer(forKey: Key.forgetAfterDays))
+        if let raw = defaults.string(forKey: Key.pasteMethod),
+           let method = PasteMethod(rawValue: raw) {
+            prefs.pasteMethod = method
+        }
+        if defaults.object(forKey: Key.restoreDelay) != nil {
+            prefs.restoreDelay = min(max(defaults.double(forKey: Key.restoreDelay),
+                                         restoreDelayRange.lowerBound), restoreDelayRange.upperBound)
+        }
         return prefs
     }
 
@@ -75,6 +112,8 @@ public struct Preferences: Equatable, Sendable {
         defaults.set(restoreClipboardAfterPaste, forKey: Key.restore)
         defaults.set(persistHistory, forKey: Key.persist)
         defaults.set(forgetAfterDays, forKey: Key.forgetAfterDays)
+        defaults.set(pasteMethod.rawValue, forKey: Key.pasteMethod)
+        defaults.set(restoreDelay, forKey: Key.restoreDelay)
     }
 
     public static var storageURL: URL {

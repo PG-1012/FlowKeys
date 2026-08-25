@@ -6,9 +6,22 @@ import FlowKeysCore
 final class PasteEngine {
 
     private let restoreClipboard: Bool
+    private let restoreDelay: TimeInterval
 
-    init(restoreClipboard: Bool) {
+    /// The user's physical ⌘ release and our synthetic press must not
+    /// overlap, or an app tracking modifier state sees them interleaved.
+    private static let settleDelay: TimeInterval = 0.03
+
+    private let method: PasteMethod
+
+    init(
+        restoreClipboard: Bool,
+        restoreDelay: TimeInterval = 0.35,
+        method: PasteMethod = .keystroke
+    ) {
         self.restoreClipboard = restoreClipboard
+        self.restoreDelay = restoreDelay
+        self.method = method
     }
 
     /// Change count after our own write, so the clipboard watcher can tell
@@ -16,6 +29,16 @@ final class PasteEngine {
     private(set) var lastSelfWriteChangeCount: Int = -1
 
     func paste(_ item: ClipboardItem, completion: (() -> Void)? = nil) {
+        // Typing bypasses the pasteboard entirely, so it neither disturbs the
+        // user's clipboard nor depends on the target app's paste handling.
+        if method == .typed {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleDelay) {
+                self.typeText(item.text)
+                completion?()
+            }
+            return
+        }
+
         let pasteboard = NSPasteboard.general
 
         // Snapshot what the user had, so we can hand it back afterwards.
@@ -25,25 +48,70 @@ final class PasteEngine {
         pasteboard.setString(item.text, forType: .string)
         lastSelfWriteChangeCount = pasteboard.changeCount
 
-        synthesizeCommandV()
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleDelay) {
+            self.synthesizeCommandV()
 
-        guard let previous, restoreClipboard else {
-            completion?()
-            return
-        }
+            guard let previous, self.restoreClipboard else {
+                completion?()
+                return
+            }
 
-        // Give the target app time to read the pasteboard before restoring.
-        // Too eager and the paste lands empty; this is the usual trade-off
-        // for clipboard managers that restore.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            pasteboard.clearContents()
-            pasteboard.setString(previous, forType: .string)
-            self.lastSelfWriteChangeCount = pasteboard.changeCount
-            completion?()
+            // Give the target app time to read the pasteboard before we put
+            // the old contents back. Restore too eagerly and a slow app --
+            // Word is the usual offender -- reads after the swap and pastes
+            // the wrong thing. Every clipboard manager makes this trade-off.
+            DispatchQueue.main.asyncAfter(deadline: .now() + self.restoreDelay) {
+                pasteboard.clearContents()
+                pasteboard.setString(previous, forType: .string)
+                self.lastSelfWriteChangeCount = pasteboard.changeCount
+                completion?()
+            }
         }
     }
 
-    /// Post a ⌘V key pair tagged so our own event tap ignores it.
+    /// Synthesize the text as keystrokes.
+    ///
+    /// `keyboardSetUnicodeString` lets a key event carry arbitrary text
+    /// regardless of keyboard layout. Events are sent in small chunks because
+    /// a single event carrying a very long string is unreliable.
+    private func typeText(_ text: String) {
+        let source = CGEventSource(stateID: .combinedSessionState)
+        let units = Array(text.utf16)
+        let chunkSize = 16
+        var offset = 0
+
+        while offset < units.count {
+            var chunk = Array(units[offset..<min(offset + chunkSize, units.count)])
+            offset += chunkSize
+
+            guard
+                let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
+                let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
+            else { continue }
+
+            down.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: &chunk)
+            up.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: &chunk)
+            for event in [down, up] {
+                event.setIntegerValueField(.eventSourceUserData, value: EventTap.syntheticMarker)
+                event.post(tap: .cghidEventTap)
+            }
+        }
+    }
+
+    /// Post a complete, coherent ⌘V sequence.
+    ///
+    /// Posting only V-down/V-up with `.maskCommand` set is enough for apps
+    /// that read `event.flags` directly, which is most of AppKit. It is not
+    /// enough for apps that track modifier state from `flagsChanged` events —
+    /// Microsoft Word and many Electron apps do. By the time we paste, the
+    /// user has just *released* ⌘, so those apps believe ⌘ is up, see a V
+    /// claiming otherwise, and either ignore it or type a literal "v".
+    ///
+    /// So we post the modifier key events too, giving every app a sequence
+    /// that is internally consistent no matter how it tracks state.
+    ///
+    /// Events go to `.cghidEventTap`, which injects low enough in the stack
+    /// that apps with their own event handling still see them.
     private func synthesizeCommandV() {
         let source = CGEventSource(stateID: .combinedSessionState)
         source?.setLocalEventsFilterDuringSuppressionState(
@@ -51,17 +119,25 @@ final class PasteEngine {
             state: .eventSuppressionStateSuppressionInterval
         )
 
+        let command = UInt16(kVK_Command)
+        let v = UInt16(kVK_ANSI_V)
+
         guard
-            let down = CGEvent(keyboardEventSource: source, virtualKey: UInt16(kVK_ANSI_V), keyDown: true),
-            let up = CGEvent(keyboardEventSource: source, virtualKey: UInt16(kVK_ANSI_V), keyDown: false)
+            let commandDown = CGEvent(keyboardEventSource: source, virtualKey: command, keyDown: true),
+            let vDown = CGEvent(keyboardEventSource: source, virtualKey: v, keyDown: true),
+            let vUp = CGEvent(keyboardEventSource: source, virtualKey: v, keyDown: false),
+            let commandUp = CGEvent(keyboardEventSource: source, virtualKey: command, keyDown: false)
         else { return }
 
-        down.flags = .maskCommand
-        up.flags = .maskCommand
-        down.setIntegerValueField(.eventSourceUserData, value: EventTap.syntheticMarker)
-        up.setIntegerValueField(.eventSourceUserData, value: EventTap.syntheticMarker)
+        commandDown.flags = .maskCommand
+        vDown.flags = .maskCommand
+        vUp.flags = .maskCommand
+        commandUp.flags = []
 
-        down.post(tap: .cgAnnotatedSessionEventTap)
-        up.post(tap: .cgAnnotatedSessionEventTap)
+        // Mark every event so our own tap skips them instead of recursing.
+        for event in [commandDown, vDown, vUp, commandUp] {
+            event.setIntegerValueField(.eventSourceUserData, value: EventTap.syntheticMarker)
+            event.post(tap: .cghidEventTap)
+        }
     }
 }

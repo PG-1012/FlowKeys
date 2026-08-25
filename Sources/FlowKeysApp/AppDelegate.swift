@@ -37,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             persistenceURL: preferences.persistHistory ? Preferences.storageURL : nil,
             forgetAfter: preferences.forgetAfter
         )
-        pasteEngine = PasteEngine(restoreClipboard: preferences.restoreClipboardAfterPaste)
+        pasteEngine = makePasteEngine()
 
         watcher = ClipboardWatcher(store: store) { [weak self] changeCount in
             self?.pasteEngine.lastSelfWriteChangeCount == changeCount
@@ -396,11 +396,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    private func makePasteEngine() -> PasteEngine {
+        PasteEngine(
+            restoreClipboard: preferences.restoreClipboardAfterPaste,
+            restoreDelay: preferences.restoreDelay,
+            method: preferences.pasteMethod
+        )
+    }
+
     private func applyPreferences(_ updated: Preferences) {
         preferences = updated
         store.forgetAfter = updated.forgetAfter
         store.purgeExpired()
-        pasteEngine = PasteEngine(restoreClipboard: updated.restoreClipboardAfterPaste)
+        pasteEngine = makePasteEngine()
         refreshStatusItem()
     }
 
