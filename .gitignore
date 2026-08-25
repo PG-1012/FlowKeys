@@ -1,0 +1,5 @@
+.build/
+.swiftpm/
+*.xcuserdatad
+FlowKeys.app
+.DS_Store
