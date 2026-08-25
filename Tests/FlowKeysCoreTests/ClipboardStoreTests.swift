@@ -121,3 +121,66 @@ final class ClipboardItemTests: XCTestCase {
         XCTAssertEqual(ClipboardItem(text: "a\nb").summary, "3 chars · 2 lines")
     }
 }
+
+/// The history file accumulates everything the user copies. These tests
+/// defend the two properties that keeps tolerable: it is not readable by
+/// anyone else, and entries do not live forever.
+final class ClipboardStorePrivacyTests: XCTestCase {
+
+    private func makeTempURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("flowkeys-priv-\(UUID().uuidString)/history.json")
+    }
+
+    func testHistoryFileIsOwnerReadableOnly() throws {
+        let url = makeTempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let store = ClipboardStore(capacity: 5, persistenceURL: url)
+        store.record("something private")
+
+        let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
+        let mode = (attrs[.posixPermissions] as? NSNumber)?.intValue
+        XCTAssertEqual(mode, 0o600, "History must not be readable by other users")
+    }
+
+    func testHistoryDirectoryIsOwnerOnly() throws {
+        let url = makeTempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let store = ClipboardStore(capacity: 5, persistenceURL: url)
+        store.record("something private")
+
+        let attrs = try FileManager.default.attributesOfItem(
+            atPath: url.deletingLastPathComponent().path
+        )
+        XCTAssertEqual((attrs[.posixPermissions] as? NSNumber)?.intValue, 0o700)
+    }
+
+    func testExpiredEntriesArePurged() {
+        let store = ClipboardStore(capacity: 10, forgetAfter: 3600)
+        store.record("old")
+        store.record("recent")
+
+        // Two hours on, only entries newer than an hour should remain.
+        store.purgeExpired(now: Date().addingTimeInterval(7200))
+        XCTAssertTrue(store.isEmpty, "Everything is older than the window")
+    }
+
+    func testPinnedEntriesNeverExpire() {
+        let store = ClipboardStore(capacity: 10, forgetAfter: 60)
+        store.record("keep me")
+        guard let item = store.item(at: 0) else { return XCTFail("missing item") }
+        store.togglePin(id: item.id)
+
+        store.purgeExpired(now: Date().addingTimeInterval(3600))
+        XCTAssertEqual(store.items.map(\.text), ["keep me"])
+    }
+
+    func testNoExpiryWindowKeepsEverything() {
+        let store = ClipboardStore(capacity: 10)
+        store.record("a")
+        store.purgeExpired(now: Date().addingTimeInterval(86_400 * 365))
+        XCTAssertEqual(store.count, 1)
+    }
+}

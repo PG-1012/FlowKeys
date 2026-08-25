@@ -254,6 +254,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
+
+        let login = NSMenuItem(
+            title: "Open at Login", action: #selector(toggleLoginItem), keyEquivalent: ""
+        )
+        login.target = self
+        login.state = LoginItem.isEnabled ? .on : .off
+        menu.addItem(login)
+
         let clear = NSMenuItem(title: "Clear History", action: #selector(clearHistory), keyEquivalent: "")
         clear.target = self
         menu.addItem(clear)
@@ -268,6 +276,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.store.promote(index: sender.tag)
             self?.refreshStatusItem()
         }
+    }
+
+    @objc private func toggleLoginItem() {
+        LoginItem.setEnabled(!LoginItem.isEnabled)
+        refreshStatusItem()
     }
 
     @objc private func clearHistory() {

@@ -8,7 +8,7 @@ APP      := FlowKeys.app
 CONFIG   := release
 BIN      := .build/$(CONFIG)/FlowKeys
 
-.PHONY: all app run test clean install reset-permission
+.PHONY: all app run test clean install reset-permission icon
 
 all: app
 
@@ -18,11 +18,15 @@ test:
 $(BIN):
 	swift build -c $(CONFIG)
 
+icon:
+	@python3 Tools/make_icon.py Resources/FlowKeys.icns
+
 app: $(BIN)
 	@rm -rf $(APP)
 	@mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
 	@cp $(BIN) $(APP)/Contents/MacOS/FlowKeys
 	@cp Resources/Info.plist $(APP)/Contents/Info.plist
+	@cp Resources/FlowKeys.icns $(APP)/Contents/Resources/FlowKeys.icns
 	@# Ad-hoc signature. Accessibility permission is keyed to this identity,
 	@# so a rebuild that changes it means re-granting permission once.
 	@codesign --force --deep --sign - $(APP)

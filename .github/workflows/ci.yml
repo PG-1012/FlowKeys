@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: swift --version
+
+      # FlowKeysCore has no AppKit dependency and needs no permissions,
+      # so the interaction logic is fully testable in CI.
+      - name: Test
+        run: swift test
+
+      - name: Build release binary
+        run: swift build -c release
+
+      - name: Assemble .app bundle
+        run: make app
+
+      - name: Verify bundle
+        run: |
+          test -f FlowKeys.app/Contents/MacOS/FlowKeys
+          test -f FlowKeys.app/Contents/Info.plist
+          codesign --verify --verbose FlowKeys.app

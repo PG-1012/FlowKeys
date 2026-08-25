@@ -8,13 +8,33 @@ public final class ClipboardStore: @unchecked Sendable {
 
     public private(set) var items: [ClipboardItem] = []
     public let capacity: Int
+    /// Drop unpinned entries older than this, if set. Limits how much of your
+    /// copy history is sitting on disk at any one time.
+    public var forgetAfter: TimeInterval?
     private let lock = NSLock()
     private let persistenceURL: URL?
 
-    public init(capacity: Int = 50, persistenceURL: URL? = nil) {
+    public init(
+        capacity: Int = 50,
+        persistenceURL: URL? = nil,
+        forgetAfter: TimeInterval? = nil
+    ) {
         self.capacity = max(1, capacity)
         self.persistenceURL = persistenceURL
+        self.forgetAfter = forgetAfter
         if let url = persistenceURL { load(from: url) }
+        purgeExpired()
+    }
+
+    /// Remove unpinned entries past their expiry. Safe to call often.
+    public func purgeExpired(now: Date = Date()) {
+        guard let forgetAfter else { return }
+        lock.lock()
+        let before = items.count
+        items.removeAll { !$0.isPinned && now.timeIntervalSince($0.capturedAt) > forgetAfter }
+        let changed = items.count != before
+        lock.unlock()
+        if changed { persist() }
     }
 
     public var isEmpty: Bool {
@@ -106,18 +126,37 @@ public final class ClipboardStore: @unchecked Sendable {
 
     // MARK: - Persistence
 
+    /// Write history to disk, owner-readable only.
+    ///
+    /// This file accumulates everything the user copies, which over time
+    /// means passwords, tokens and private messages. The default file mode
+    /// (0644) would leave all of that readable by every process and every
+    /// other account on the machine, so both the directory and the file are
+    /// forced to 0700/0600, and the file is kept out of backups.
     private func persist() {
         guard let url = persistenceURL else { return }
         lock.lock()
         let snapshot = items
         lock.unlock()
+
+        let directory = url.deletingLastPathComponent()
         do {
-            let data = try JSONEncoder().encode(snapshot)
-            try FileManager.default.createDirectory(
-                at: url.deletingLastPathComponent(),
-                withIntermediateDirectories: true
+            let fm = FileManager.default
+            try fm.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
             )
-            try data.write(to: url, options: .atomic)
+            try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+
+            let data = try JSONEncoder().encode(snapshot)
+            try data.write(to: url, options: [.atomic, .completeFileProtection])
+            try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+
+            var excluded = URLResourceValues()
+            excluded.isExcludedFromBackup = true
+            var mutable = url
+            try? mutable.setResourceValues(excluded)
         } catch {
             // History is a convenience, not a system of record. Losing a
             // write should never take the app down.

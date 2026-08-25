@@ -1,5 +1,7 @@
 # FlowKeys
 
+[![CI](https://github.com/PG-1012/FlowKeys/actions/workflows/ci.yml/badge.svg)](https://github.com/PG-1012/FlowKeys/actions/workflows/ci.yml)
+
 Copy several things. Paste the one you want.
 
 FlowKeys keeps a history of what you copy and puts it behind the ⌘V you
@@ -123,8 +125,34 @@ The interaction logic lives in `FlowKeysCore` with no AppKit imports, so the
 behaviour can be tested without a running app or any permissions:
 
 ```bash
-make test        # 34 tests
+make test        # 39 tests
 ```
+
+CI runs the suite, a release build and a bundle verification on every push.
+
+---
+
+## Privacy
+
+Everything stays on your machine. There is no server, no network code and no
+telemetry.
+
+That said, a clipboard manager accumulates whatever you copy — which over
+time means passwords, tokens and private messages. So:
+
+- History is written to `~/Library/Application Support/FlowKeys/history.json`
+  with mode **0600** and the containing directory **0700**, readable only by
+  your account. It is also excluded from backups.
+- Content flagged transient or concealed is never recorded at all. That is
+  the convention password managers use, so 1Password, Bitwarden and friends
+  stay out of history by design.
+- `ClipboardStore(forgetAfter:)` drops unpinned entries past a chosen age.
+
+**It is not encrypted at rest.** Anything you copy manually — selecting a
+password in a text field and hitting ⌘C — is stored in plain text under your
+account. If that is not acceptable for your threat model, set
+`persistHistory = false` in `Preferences.swift` to keep history in memory
+only.
 
 ---
 
@@ -152,5 +180,8 @@ Rough edges worth knowing about:
   the number may need tuning.
 - **No preferences UI.** History size and timings are constants in
   `Preferences.swift`.
+- **No signed release build.** Distributing a `.app` others can open without
+  Gatekeeper warnings needs a paid Apple Developer account for notarization.
+  Until then, building from source is the supported path.
 
 MIT licensed.
