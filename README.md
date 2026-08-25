@@ -58,7 +58,15 @@ FlowKeys needs **Accessibility** access, and will prompt on first launch:
 
 > System Settings → Privacy & Security → Accessibility → enable FlowKeys
 
-It starts working the moment you flip the switch — no restart needed.
+Then **quit and reopen FlowKeys**. macOS only hands an already-running
+process a fresh event tap in some cases, so a relaunch is the reliable move.
+
+If the menu still says it needs access after that, you probably have stale
+duplicate entries from an earlier build:
+
+```bash
+make reset-permission     # clears them
+```
 
 This is not optional, and it's worth knowing why. Intercepting ⌘V means
 *consuming* the keystroke before the frontmost app sees it, and macOS gates
@@ -134,8 +142,10 @@ Early but real. What's verified and what isn't:
 Rough edges worth knowing about:
 
 - **Text only.** Images and files aren't captured yet.
-- **Ad-hoc signed.** Rebuilding changes the signature, so macOS asks you to
-  re-grant Accessibility permission after a rebuild.
+- **Ad-hoc signed.** macOS keys Accessibility permission to the code
+  signature, and an ad-hoc signature changes on every rebuild. So a rebuild
+  orphans the old grant *and* leaves a stale duplicate entry in System
+  Settings. Run `make reset-permission` to clear both, then grant once more.
 - **The clipboard-restore delay is a guess.** After pasting, FlowKeys waits
   250ms before restoring your previous clipboard. Too short and a slow app
   reads an empty pasteboard. Every clipboard manager makes this trade-off;

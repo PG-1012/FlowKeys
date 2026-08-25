@@ -2,7 +2,7 @@ import Cocoa
 import FlowKeysCore
 
 @main
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private var preferences = Preferences.default
     private var store: ClipboardStore!
@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: NSStatusItem?
     private var revealTimer: Timer?
+    private var permissionTimer: Timer?
     private var commandHeld = false
 
     static func main() {
@@ -63,16 +64,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         EventTap.requestAccessibilityPermission()
-        presentPermissionAlert()
 
-        // The permission is granted outside the app, so poll until it lands.
-        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
-            guard let self else { timer.invalidate(); return }
-            if EventTap.hasAccessibilityPermission, self.eventTap.start() {
-                timer.invalidate()
-                self.refreshStatusItem()
-            }
+        // Schedule the retry *before* showing the alert. `runModal()` blocks
+        // the run loop, so a timer scheduled after it would not tick until the
+        // user dismissed the alert -- and they grant the permission while it
+        // is still on screen.
+        startPermissionPolling()
+
+        // Present on the next turn of the run loop for the same reason.
+        DispatchQueue.main.async { [weak self] in
+            self?.presentPermissionAlert()
         }
+    }
+
+    private func startPermissionPolling() {
+        permissionTimer?.invalidate()
+        let timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
+            guard let self else { timer.invalidate(); return }
+            guard EventTap.hasAccessibilityPermission, self.eventTap.start() else { return }
+            timer.invalidate()
+            self.permissionTimer = nil
+            self.refreshStatusItem()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        permissionTimer = timer
     }
 
     private func presentPermissionAlert() {
@@ -180,16 +195,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.image = NSImage(
             systemSymbolName: "list.clipboard", accessibilityDescription: "FlowKeys"
         )
-        item.menu = buildMenu()
+        let menu = NSMenu()
+        menu.delegate = self
+        item.menu = menu
         statusItem = item
+        refreshStatusItem()
+    }
+
+    /// Rebuild on every open. Permission can be granted while the app is
+    /// running, and history changes constantly; a menu built once at launch
+    /// would keep claiming the permission is missing after it was granted.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        if !eventTap.isRunning, EventTap.hasAccessibilityPermission {
+            _ = eventTap.start()
+        }
+        populate(menu)
     }
 
     private func refreshStatusItem() {
-        statusItem?.menu = buildMenu()
+        statusItem?.button?.image = NSImage(
+            systemSymbolName: eventTap.isRunning ? "list.clipboard.fill" : "list.clipboard",
+            accessibilityDescription: "FlowKeys"
+        )
+        if let menu = statusItem?.menu { populate(menu) }
     }
 
-    private func buildMenu() -> NSMenu {
-        let menu = NSMenu()
+    private func populate(_ menu: NSMenu) {
+        menu.removeAllItems()
 
         if !EventTap.hasAccessibilityPermission || !eventTap.isRunning {
             let warning = NSMenuItem(
@@ -197,6 +229,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
             warning.target = self
             menu.addItem(warning)
+            let hint = NSMenuItem(
+                title: "    Already enabled? Quit and reopen FlowKeys.",
+                action: nil, keyEquivalent: ""
+            )
+            hint.isEnabled = false
+            menu.addItem(hint)
             menu.addItem(.separator())
         }
 
@@ -222,7 +260,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(
             NSMenuItem(title: "Quit FlowKeys", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         )
-        return menu
     }
 
     @objc private func pasteFromMenu(_ sender: NSMenuItem) {

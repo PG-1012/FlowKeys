@@ -8,7 +8,7 @@ APP      := FlowKeys.app
 CONFIG   := release
 BIN      := .build/$(CONFIG)/FlowKeys
 
-.PHONY: all app run test clean install
+.PHONY: all app run test clean install reset-permission
 
 all: app
 
@@ -35,6 +35,13 @@ install: app
 	@rm -rf /Applications/$(APP)
 	@cp -R $(APP) /Applications/
 	@echo "Installed to /Applications/$(APP)"
+
+# An ad-hoc signature changes on every rebuild, and macOS keys Accessibility
+# permission to it -- so a rebuild orphans the old grant and leaves a stale
+# duplicate entry in System Settings. Clear both, then re-grant once.
+reset-permission:
+	@tccutil reset Accessibility com.pg1012.FlowKeys
+	@echo "Cleared. Relaunch FlowKeys and grant access again."
 
 clean:
 	@rm -rf .build $(APP)
