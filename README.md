@@ -44,6 +44,11 @@ checks.
 Type-to-filter is the one that changes how it feels once history gets long:
 hold ⌘, tap V, then type `inv` to narrow fifty entries down to the invoice
 number you copied ten minutes ago. Backspace widens it again.
+---
+
+# Demo:
+
+https://github.com/user-attachments/assets/aa437e68-2e79-4e74-9f00-b9359cbcd587
 
 ---
 
