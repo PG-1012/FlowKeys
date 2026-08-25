@@ -6,6 +6,8 @@ import SwiftUI
 struct OverlayView: View {
     let items: [ClipboardItem]
     let selection: Int
+    /// Type-to-filter text, shown as a header when non-empty.
+    var query: String = ""
 
     /// Rows to show around the selection. The full history stays reachable by
     /// continuing to tap V; showing 50 rows next to the caret would not be.
@@ -22,15 +24,39 @@ struct OverlayView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
+            if !query.isEmpty {
+                HStack(spacing: 5) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 9, weight: .bold))
+                    Text(query)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    Spacer()
+                    Text(items.isEmpty ? "no matches" : "\(items.count)")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+                .foregroundStyle(items.isEmpty ? Color.secondary : Color.primary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+            }
+
+            if items.isEmpty {
+                Text(query.isEmpty ? "Clipboard history is empty" : "Nothing matches \u{201C}\(query)\u{201D}")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+            }
+
             ForEach(visibleRange, id: \.self) { index in
                 row(for: items[index], index: index)
             }
 
-            if items.count > windowSize {
+            if items.count > windowSize || !query.isEmpty {
                 HStack(spacing: 4) {
                     Text("\(selection + 1) of \(items.count)")
                     Spacer()
-                    Text("⌘V to cycle · ⇧ back · esc")
+                    Text("⌘V cycle · 1-9 jump · type to filter · esc")
                 }
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(.secondary)

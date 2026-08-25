@@ -13,8 +13,8 @@ final class OverlayPanel {
 
     private static let margin: CGFloat = 14
 
-    func show(items: [ClipboardItem], selection: Int, near anchor: NSPoint) {
-        let view = OverlayView(items: items, selection: selection)
+    func show(items: [ClipboardItem], selection: Int, query: String = "", near anchor: NSPoint) {
+        let view = OverlayView(items: items, selection: selection, query: query)
 
         if let hosting {
             hosting.rootView = view

@@ -123,5 +123,11 @@ final class EventTap {
 enum KeyCode {
     static let v: Int64 = Int64(kVK_ANSI_V)
     static let escape: Int64 = Int64(kVK_Escape)
-    static let one: Int64 = Int64(kVK_ANSI_1)
+    static let delete: Int64 = Int64(kVK_Delete)
+    /// Virtual key codes for 1...9 in row order (they are not contiguous).
+    static let digitRow: [Int64] = [
+        Int64(kVK_ANSI_1), Int64(kVK_ANSI_2), Int64(kVK_ANSI_3),
+        Int64(kVK_ANSI_4), Int64(kVK_ANSI_5), Int64(kVK_ANSI_6),
+        Int64(kVK_ANSI_7), Int64(kVK_ANSI_8), Int64(kVK_ANSI_9),
+    ]
 }

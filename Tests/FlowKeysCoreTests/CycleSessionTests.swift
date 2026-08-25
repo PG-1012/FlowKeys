@@ -165,3 +165,80 @@ final class CycleSessionTests: XCTestCase {
         XCTAssertTrue((0..<2).contains(session.index), "index \(session.index) out of range")
     }
 }
+
+/// Type-to-filter while the overlay is up.
+///
+/// The session does not do the matching — the caller filters its own history
+/// and reports the count back — so these tests pin the *interaction*: what
+/// the highlight does as a query narrows, and what happens when it matches
+/// nothing.
+final class CycleSessionFilterTests: XCTestCase {
+
+    private var session = CycleSession()
+
+    override func setUp() {
+        super.setUp()
+        session = CycleSession()
+        _ = session.pasteKeyPressed(itemCount: 10)
+        _ = session.pasteKeyPressed(itemCount: 10)   // cycling at index 1
+    }
+
+    func testTypingBuildsTheQuery() {
+        _ = session.appendToQuery("a", matchCount: 4)
+        _ = session.appendToQuery("b", matchCount: 2)
+        XCTAssertEqual(session.query, "ab")
+    }
+
+    func testFilteringResetsHighlightToTopMatch() {
+        _ = session.pasteKeyPressed(itemCount: 10)   // index 2
+        XCTAssertEqual(session.index, 2)
+        _ = session.appendToQuery("x", matchCount: 3)
+        XCTAssertEqual(session.index, 0, "Highlight must jump to the best match")
+    }
+
+    func testCyclingAfterFilteringWrapsWithinMatchesOnly() {
+        _ = session.appendToQuery("x", matchCount: 2)
+        _ = session.pasteKeyPressed(itemCount: 2)
+        XCTAssertEqual(session.index, 1)
+        _ = session.pasteKeyPressed(itemCount: 2)
+        XCTAssertEqual(session.index, 0, "Must wrap within the filtered set")
+    }
+
+    func testBackspaceShortensTheQuery() {
+        _ = session.appendToQuery("a", matchCount: 4)
+        _ = session.appendToQuery("b", matchCount: 1)
+        _ = session.deleteQueryCharacter(matchCount: 4)
+        XCTAssertEqual(session.query, "a")
+    }
+
+    func testBackspaceOnEmptyQueryDoesNothing() {
+        XCTAssertTrue(session.deleteQueryCharacter(matchCount: 10).isEmpty)
+        XCTAssertEqual(session.query, "")
+    }
+
+    func testCommittingWithNoMatchesPastesNothing() {
+        _ = session.appendToQuery("z", matchCount: 0)
+        XCTAssertEqual(session.modifierReleased(), [.hideOverlay],
+                       "An empty result set has nothing to paste")
+    }
+
+    func testQueryIsClearedForTheNextSession() {
+        _ = session.appendToQuery("a", matchCount: 2)
+        _ = session.modifierReleased()
+        XCTAssertEqual(session.query, "")
+
+        _ = session.pasteKeyPressed(itemCount: 5)
+        XCTAssertEqual(session.query, "", "A fresh session must start unfiltered")
+    }
+
+    func testCancelClearsTheQuery() {
+        _ = session.appendToQuery("a", matchCount: 2)
+        _ = session.cancel()
+        XCTAssertEqual(session.query, "")
+    }
+
+    func testTypingWhenIdleIsIgnored() {
+        var fresh = CycleSession()
+        XCTAssertTrue(fresh.appendToQuery("a", matchCount: 3).isEmpty)
+    }
+}

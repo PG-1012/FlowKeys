@@ -37,7 +37,13 @@ checks.
 | `⌘V` then `V`, `V`… | Step back through history, overlay appears |
 | `⌘⇧V` while cycling | Step forward again |
 | Hold `⌘V` and wait | Overlay appears without moving the selection |
+| `1`–`9` while cycling | Jump straight to that entry |
+| Type while cycling | Filter history as you type |
 | `esc` | Cancel, paste nothing |
+
+Type-to-filter is the one that changes how it feels once history gets long:
+hold ⌘, tap V, then type `inv` to narrow fifty entries down to the invoice
+number you copied ten minutes ago. Backspace widens it again.
 
 ---
 
@@ -125,7 +131,7 @@ The interaction logic lives in `FlowKeysCore` with no AppKit imports, so the
 behaviour can be tested without a running app or any permissions:
 
 ```bash
-make test        # 39 tests
+make test        # 54 tests
 ```
 
 CI runs the suite, a release build and a bundle verification on every push.
@@ -178,8 +184,6 @@ Rough edges worth knowing about:
   250ms before restoring your previous clipboard. Too short and a slow app
   reads an empty pasteboard. Every clipboard manager makes this trade-off;
   the number may need tuning.
-- **No preferences UI.** History size and timings are constants in
-  `Preferences.swift`.
 - **No signed release build.** Distributing a `.app` others can open without
   Gatekeeper warnings needs a paid Apple Developer account for notarization.
   Until then, building from source is the supported path.

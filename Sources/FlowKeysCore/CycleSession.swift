@@ -44,6 +44,9 @@ public struct CycleSession: Equatable, Sendable {
 
     public private(set) var phase: Phase = .idle
     public private(set) var index: Int = 0
+    /// Type-to-filter text entered while the overlay is up. The caller owns
+    /// the filtering itself and reports the resulting count back in.
+    public private(set) var query: String = ""
     private var itemCount: Int = 0
 
     public init() {}
@@ -93,6 +96,11 @@ public struct CycleSession: Equatable, Sendable {
         case .idle:
             return []
         case .armed, .cycling:
+            // A filter that matches nothing has nothing to commit.
+            guard itemCount > 0 else {
+                reset()
+                return [.hideOverlay]
+            }
             let target = index
             reset()
             return [.paste(index: target)]
@@ -114,6 +122,34 @@ public struct CycleSession: Equatable, Sendable {
         return [.showOverlay(index: index)]
     }
 
+    // MARK: - Type to filter
+
+    /// A character was typed while cycling. `matchCount` is how many items
+    /// survive the *new* query — the caller does the matching, since only it
+    /// knows the history.
+    public mutating func appendToQuery(_ character: Character, matchCount: Int) -> [Effect] {
+        guard phase != .idle else { return [] }
+        query.append(character)
+        return applyFilter(matchCount: matchCount)
+    }
+
+    /// Backspace. Returns `hideOverlay` semantics unchanged; an empty query
+    /// simply shows the whole history again.
+    public mutating func deleteQueryCharacter(matchCount: Int) -> [Effect] {
+        guard phase != .idle, !query.isEmpty else { return [] }
+        query.removeLast()
+        return applyFilter(matchCount: matchCount)
+    }
+
+    private mutating func applyFilter(matchCount: Int) -> [Effect] {
+        itemCount = matchCount
+        // Filtering changes what index 0 means, so always jump back to the
+        // top match rather than leaving the highlight somewhere arbitrary.
+        index = 0
+        phase = .cycling
+        return [.showOverlay(index: index)]
+    }
+
     // MARK: - Helpers
 
     private func step(from current: Int, backwards: Bool) -> Int {
@@ -126,5 +162,6 @@ public struct CycleSession: Equatable, Sendable {
         phase = .idle
         index = 0
         itemCount = 0
+        query = ""
     }
 }

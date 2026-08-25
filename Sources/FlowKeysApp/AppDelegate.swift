@@ -1,10 +1,15 @@
 import Cocoa
 import FlowKeysCore
+import SwiftUI
 
 @main
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
-    private var preferences = Preferences.default
+    private var preferences = Preferences.load()
+    /// Items currently shown in the overlay: the whole history, or whatever
+    /// survives the type-to-filter query.
+    private var visibleItems: [ClipboardItem] = []
+    private var settingsWindow: NSWindow?
     private var store: ClipboardStore!
     private var watcher: ClipboardWatcher!
     private var eventTap: EventTap!
@@ -29,7 +34,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         store = ClipboardStore(
             capacity: preferences.historyCapacity,
-            persistenceURL: preferences.persistHistory ? Preferences.storageURL : nil
+            persistenceURL: preferences.persistHistory ? Preferences.storageURL : nil,
+            forgetAfter: preferences.forgetAfter
         )
         pasteEngine = PasteEngine(restoreClipboard: preferences.restoreClipboardAfterPaste)
 
@@ -118,23 +124,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return true
         }
 
-        guard keyCode == KeyCode.v, flags.contains(.maskCommand) else {
-            // Any other key while cycling aborts, so the keystroke is not lost.
+        if keyCode == KeyCode.v, flags.contains(.maskCommand) {
+            let backwards = flags.contains(.maskShift)
+            visibleItems = store.items
+            let effects = session.pasteKeyPressed(itemCount: visibleItems.count, backwards: backwards)
+            if effects.contains(.passThrough) { return false }
+            if session.phase == .armed { startRevealTimer() } else { cancelRevealTimer() }
+            apply(effects)
+            return true
+        }
+
+        // Everything below only applies once the overlay is actually up.
+        guard session.phase == .cycling else {
+            // Armed but not yet cycling: leave other keystrokes alone.
             if session.isActive { apply(session.cancel()) }
             return false
         }
 
-        let backwards = flags.contains(.maskShift)
-        let effects = session.pasteKeyPressed(itemCount: store.count, backwards: backwards)
+        // Number keys jump straight to an entry.
+        if let slot = numberSlot(for: keyCode), slot < visibleItems.count {
+            apply(session.select(index: slot))
+            return true
+        }
 
-        if effects.contains(.passThrough) { return false }
+        if keyCode == KeyCode.delete {
+            let query = String(session.query.dropLast())
+            visibleItems = filtered(by: query)
+            apply(session.deleteQueryCharacter(matchCount: visibleItems.count))
+            return true
+        }
 
-        // While armed, start the timer that reveals the overlay if the user
-        // simply keeps holding ⌘ without tapping V again.
-        if session.phase == .armed { startRevealTimer() } else { cancelRevealTimer() }
+        // Type to filter. The user is holding ⌘, so these arrive as ⌘-letter
+        // combinations; swallowing them is safe because we only get here while
+        // the overlay is on screen.
+        if let character = Self.character(for: keyCode), character.isLetter || character.isNumber
+            || character == " " || character == "." || character == "-" || character == "/" {
+            visibleItems = filtered(by: session.query + String(character))
+            apply(session.appendToQuery(character, matchCount: visibleItems.count))
+            return true
+        }
 
-        apply(effects)
+        apply(session.cancel())
         return true
+    }
+
+    /// Case-insensitive substring match across the whole history.
+    private func filtered(by query: String) -> [ClipboardItem] {
+        guard !query.isEmpty else { return store.items }
+        return store.items.filter { $0.text.range(of: query, options: .caseInsensitive) != nil }
+    }
+
+    private func numberSlot(for keyCode: Int64) -> Int? {
+        // 1...9 select the first nine visible rows.
+        guard let index = KeyCode.digitRow.firstIndex(of: keyCode) else { return nil }
+        return index
+    }
+
+    private static func character(for keyCode: Int64) -> Character? {
+        guard let source = CGEventSource(stateID: .hidSystemState),
+              let event = CGEvent(keyboardEventSource: source,
+                                  virtualKey: UInt16(keyCode), keyDown: true)
+        else { return nil }
+        // Read the key without modifiers so ⌘V-style combinations still
+        // resolve to the plain letter.
+        event.flags = []
+        var length = 0
+        var chars = [UniChar](repeating: 0, count: 4)
+        event.keyboardGetUnicodeString(maxStringLength: 4, actualStringLength: &length, unicodeString: &chars)
+        guard length > 0, let scalar = String(utf16CodeUnits: chars, count: length).first else { return nil }
+        return scalar
     }
 
     private func handleFlagsChanged(_ flags: CGEventFlags) {
@@ -154,20 +212,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 break
             case .showOverlay(let index):
                 overlay.show(
-                    items: store.items,
+                    items: visibleItems,
                     selection: index,
+                    query: session.query,
                     near: CaretLocator.overlayAnchor()
                 )
             case .hideOverlay:
                 overlay.hide()
             case .paste(let index):
                 overlay.hide()
-                guard let item = store.item(at: index) else { break }
+                // `index` addresses the filtered list, so map back by identity.
+                guard visibleItems.indices.contains(index) else { break }
+                let item = visibleItems[index]
                 pasteEngine.paste(item) { [weak self] in
+                    guard let self else { return }
                     // The pasted item becomes the most recent, so a plain ⌘V
                     // next time repeats what you just pasted.
-                    self?.store.promote(index: index)
-                    self?.refreshStatusItem()
+                    if let storeIndex = self.store.items.firstIndex(where: { $0.id == item.id }) {
+                        self.store.promote(index: storeIndex)
+                    }
+                    self.refreshStatusItem()
                 }
             }
         }
@@ -255,6 +319,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         menu.addItem(.separator())
 
+        let settings = NSMenuItem(
+            title: "Settings…", action: #selector(openSettings), keyEquivalent: ","
+        )
+        settings.target = self
+        menu.addItem(settings)
+
         let login = NSMenuItem(
             title: "Open at Login", action: #selector(toggleLoginItem), keyEquivalent: ""
         )
@@ -276,6 +346,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.store.promote(index: sender.tag)
             self?.refreshStatusItem()
         }
+    }
+
+    @objc private func openSettings() {
+        if let window = settingsWindow {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        let view = SettingsView(preferences: preferences) { [weak self] updated in
+            self?.applyPreferences(updated)
+        }
+        let window = NSWindow(contentViewController: NSHostingController(rootView: view))
+        window.title = "FlowKeys Settings"
+        window.styleMask = [.titled, .closable]
+        window.isReleasedWhenClosed = false
+        window.center()
+        settingsWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func applyPreferences(_ updated: Preferences) {
+        preferences = updated
+        store.forgetAfter = updated.forgetAfter
+        store.purgeExpired()
+        pasteEngine = PasteEngine(restoreClipboard: updated.restoreClipboardAfterPaste)
+        refreshStatusItem()
     }
 
     @objc private func toggleLoginItem() {
