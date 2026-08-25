@@ -411,11 +411,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func makePasteEngine() -> PasteEngine {
-        PasteEngine(
+        let engine = PasteEngine(
             restoreClipboard: preferences.restoreClipboardAfterPaste,
             restoreDelay: preferences.restoreDelay,
             method: preferences.pasteMethod
         )
+        // Without this the tap swallows our own synthetic ⌘V and the paste
+        // silently does nothing.
+        engine.willSynthesize = { [weak self] interval in
+            self?.eventTap.suppressSelfGenerated(for: interval)
+        }
+        return engine
     }
 
     private func applyPreferences(_ updated: Preferences) {

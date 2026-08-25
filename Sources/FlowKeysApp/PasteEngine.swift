@@ -13,6 +13,9 @@ final class PasteEngine {
     private static let settleDelay: TimeInterval = 0.03
 
     private let method: PasteMethod
+    /// Called just before any synthetic event is posted, so the event tap can
+    /// ignore what we are about to generate.
+    var willSynthesize: ((TimeInterval) -> Void)?
 
     init(
         restoreClipboard: Bool,
@@ -31,6 +34,7 @@ final class PasteEngine {
     func paste(_ item: ClipboardItem, completion: (() -> Void)? = nil) {
         // Typing bypasses the pasteboard entirely, so it neither disturbs the
         // user's clipboard nor depends on the target app's paste handling.
+        Log.paste.debug("paste requested, method=\(String(describing: self.method), privacy: .public)")
         if method == .typed {
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleDelay) {
                 self.typeText(item.text)
@@ -75,6 +79,8 @@ final class PasteEngine {
     /// regardless of keyboard layout. Events are sent in small chunks because
     /// a single event carrying a very long string is unreliable.
     private func typeText(_ text: String) {
+        willSynthesize?(max(0.3, Double(text.count) * 0.002))
+
         let source = CGEventSource(stateID: .combinedSessionState)
         let units = Array(text.utf16)
         let chunkSize = 16
@@ -113,6 +119,10 @@ final class PasteEngine {
     /// Events go to `.cghidEventTap`, which injects low enough in the stack
     /// that apps with their own event handling still see them.
     private func synthesizeCommandV() {
+        // Blanket-ignore our own events for the duration of the sequence.
+        willSynthesize?(0.3)
+        Log.paste.debug("synthesizing Cmd-V")
+
         let source = CGEventSource(stateID: .combinedSessionState)
         source?.setLocalEventsFilterDuringSuppressionState(
             [.permitLocalMouseEvents, .permitLocalKeyboardEvents],
@@ -139,5 +149,6 @@ final class PasteEngine {
             event.setIntegerValueField(.eventSourceUserData, value: EventTap.syntheticMarker)
             event.post(tap: .cghidEventTap)
         }
+        Log.paste.debug("posted Cmd-V sequence")
     }
 }

@@ -108,6 +108,19 @@ for exactly this reason, but if an app still ignores it, switch
 **Settings → Pasting → Deliver text by → Type the text**. That synthesizes the
 characters directly and does not depend on the app's paste handling at all.
 
+**Nothing pastes at all, in any app, but "Type the text" works.** The event
+tap is swallowing FlowKeys' own synthetic ⌘V. Events posted to
+`.cghidEventTap` travel the full input stack and come back through every tap
+including ours, so the recursion guard has to hold. If you are hacking on the
+paste path and hit this, check `EventTap.suppressSelfGenerated(for:)` is being
+called before anything is posted.
+
+To see what the tap is doing:
+
+```bash
+log stream --predicate 'subsystem == "com.pg1012.FlowKeys"' --level debug
+```
+
 **An app pastes the previous item instead of the one you chose.** It reads the
 clipboard lazily, after FlowKeys has already restored your previous contents.
 Raise **Settings → Pasting → Restore after**, or turn the restore off.
