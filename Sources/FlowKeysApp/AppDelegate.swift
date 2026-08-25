@@ -302,6 +302,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(.separator())
         }
 
+        // Another build running alongside this one will fight over ⌘V.
+        let others = InstanceCheck.otherRunningBuilds()
+        if !others.isEmpty {
+            let warning = NSMenuItem(
+                title: "⚠︎ Another FlowKeys is running", action: nil, keyEquivalent: ""
+            )
+            warning.isEnabled = false
+            menu.addItem(warning)
+            for other in others {
+                let detail = NSMenuItem(title: "    \(other.path)", action: nil, keyEquivalent: "")
+                detail.isEnabled = false
+                menu.addItem(detail)
+            }
+            let quitOthers = NSMenuItem(
+                title: "Quit the other FlowKeys", action: #selector(quitOtherBuilds), keyEquivalent: ""
+            )
+            quitOthers.target = self
+            menu.addItem(quitOthers)
+            menu.addItem(.separator())
+        }
+
         let header = NSMenuItem(title: "History (\(store.count))", action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
@@ -338,6 +359,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(
             NSMenuItem(title: "Quit FlowKeys", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         )
+
+        menu.addItem(.separator())
+        let footer = NSMenuItem(
+            title: "v\(InstanceCheck.versionString) · \(InstanceCheck.locationDescription)",
+            action: nil, keyEquivalent: ""
+        )
+        footer.isEnabled = false
+        menu.addItem(footer)
     }
 
     @objc private func pasteFromMenu(_ sender: NSMenuItem) {
@@ -377,6 +406,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleLoginItem() {
         LoginItem.setEnabled(!LoginItem.isEnabled)
+        refreshStatusItem()
+    }
+
+    @objc private func quitOtherBuilds() {
+        let myPath = Bundle.main.bundlePath
+        for app in NSWorkspace.shared.runningApplications {
+            guard let url = app.bundleURL, url.path != myPath,
+                  url.lastPathComponent.localizedCaseInsensitiveContains("FlowKeys")
+            else { continue }
+            app.terminate()
+        }
         refreshStatusItem()
     }
 

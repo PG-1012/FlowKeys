@@ -82,6 +82,31 @@ that behind Accessibility. There is no lesser permission that would do.
 
 ---
 
+## Troubleshooting
+
+**⌘V pastes the same thing every time, and the list appears in the middle of
+the screen.** You are running a different build — almost certainly a stale
+Xcode one from `~/Library/Developer/Xcode/DerivedData`. macOS only stops two
+copies of the *same* bundle identifier from running, so an old build under a
+different identifier runs happily alongside the real one and wins the race
+for ⌘V.
+
+Open the menu bar item: it shows the running version and location at the
+bottom, and warns with a **Quit the other FlowKeys** button if it finds
+another build. If the location reads `⚠︎ Xcode build folder`, that is the
+problem.
+
+```bash
+rm -rf ~/Library/Developer/Xcode/DerivedData/FlowKeys-*
+make install && open /Applications/FlowKeys.app
+```
+
+**The menu says it needs Accessibility access but you granted it.** You
+probably have stale entries from builds at other paths. `make
+reset-permission` clears them; grant once more afterwards.
+
+---
+
 ## How it works
 
 **Capturing copies.** macOS has no "pasteboard changed" notification, so a
