@@ -1,5 +1,7 @@
+import AppKit
 import FlowKeysCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Settings window. Changes apply immediately — there is no Apply button and
 /// nothing to confirm, which suits an app you only open to change one thing.
@@ -149,6 +151,8 @@ struct SettingsView: View {
             }
             caption(pasteMethodHelp)
 
+            typedAppsList
+
             Toggle("Restore previous clipboard after pasting", isOn: restoreClipboard)
 
             if preferences.restoreClipboardAfterPaste && preferences.pasteMethod == .keystroke {
@@ -163,6 +167,67 @@ struct SettingsView: View {
                 caption("Increase this if an app pastes the wrong item — some apps read the clipboard lazily.")
             }
         }
+    }
+
+    /// Apps that always get typed text, regardless of the default above.
+    private var typedAppsList: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Always type in these apps")
+                .font(.subheadline.weight(.medium))
+            Text("Some apps ignore a synthetic ⌘V however faithfully it is sent. There is no way to detect that automatically, so they are listed here.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if preferences.typedApps.isEmpty {
+                Text("None")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(sortedTypedApps, id: \.self) { bundleID in
+                    HStack(spacing: 6) {
+                        Text(Self.displayName(for: bundleID))
+                            .font(.callout)
+                        Text(bundleID)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button {
+                            preferences.typedApps.remove(bundleID)
+                            push()
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            }
+
+            Button("Add App…") { addApp() }
+                .controlSize(.small)
+        }
+    }
+
+    private var sortedTypedApps: [String] {
+        preferences.typedApps.sorted { Self.displayName(for: $0) < Self.displayName(for: $1) }
+    }
+
+    private static func displayName(for bundleID: String) -> String {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+        else { return bundleID }
+        return FileManager.default.displayName(atPath: url.path)
+    }
+
+    private func addApp() {
+        let panel = NSOpenPanel()
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.allowedContentTypes = [.application]
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Add"
+        guard panel.runModal() == .OK, let url = panel.url,
+              let bundle = Bundle(url: url), let id = bundle.bundleIdentifier
+        else { return }
+        preferences.typedApps.insert(id)
+        push()
     }
 
     private var pasteMethodHelp: String {

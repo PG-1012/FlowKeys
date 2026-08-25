@@ -10,6 +10,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// survives the type-to-filter query.
     private var visibleItems: [ClipboardItem] = []
     private var settingsWindow: NSWindow?
+    /// The app that was frontmost when cycling began. Captured up front
+    /// because it is the paste target, and our own overlay must not be
+    /// mistaken for it.
+    private var targetApp: String?
+    private var targetAppName: String?
     private var store: ClipboardStore!
     private var watcher: ClipboardWatcher!
     private var eventTap: EventTap!
@@ -126,6 +131,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         if keyCode == KeyCode.v, flags.contains(.maskCommand) {
             let backwards = flags.contains(.maskShift)
+            if !session.isActive {
+                let front = NSWorkspace.shared.frontmostApplication
+                targetApp = front?.bundleIdentifier
+                targetAppName = front?.localizedName
+            }
             visibleItems = store.items
             let effects = session.pasteKeyPressed(itemCount: visibleItems.count, backwards: backwards)
             if effects.contains(.passThrough) { return false }
@@ -224,7 +234,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 // `index` addresses the filtered list, so map back by identity.
                 guard visibleItems.indices.contains(index) else { break }
                 let item = visibleItems[index]
-                pasteEngine.paste(item) { [weak self] in
+                pasteEngine.paste(item, into: targetApp) { [weak self] in
                     guard let self else { return }
                     // The pasted item becomes the most recent, so a plain ⌘V
                     // next time repeats what you just pasted.
@@ -354,6 +364,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         menu.addItem(.separator())
 
+        if let bundleID = targetApp, let name = targetAppName {
+            let typed = preferences.typedApps.contains(bundleID)
+            let item = NSMenuItem(
+                title: "Always type in \(name)",
+                action: #selector(toggleTypedApp), keyEquivalent: ""
+            )
+            item.target = self
+            item.state = typed ? .on : .off
+            item.representedObject = bundleID
+            menu.addItem(item)
+            menu.addItem(.separator())
+        }
+
         let settings = NSMenuItem(
             title: "Settings…", action: #selector(openSettings), keyEquivalent: ","
         )
@@ -385,10 +408,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func pasteFromMenu(_ sender: NSMenuItem) {
         guard let item = store.item(at: sender.tag) else { return }
-        pasteEngine.paste(item) { [weak self] in
+        let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        pasteEngine.paste(item, into: front) { [weak self] in
             self?.store.promote(index: sender.tag)
             self?.refreshStatusItem()
         }
+    }
+
+    @objc private func toggleTypedApp(_ sender: NSMenuItem) {
+        guard let bundleID = sender.representedObject as? String else { return }
+        if preferences.typedApps.contains(bundleID) {
+            preferences.typedApps.remove(bundleID)
+        } else {
+            preferences.typedApps.insert(bundleID)
+        }
+        preferences.save()
+        refreshStatusItem()
     }
 
     @objc private func openSettings() {
@@ -420,6 +455,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // silently does nothing.
         engine.willSynthesize = { [weak self] interval in
             self?.eventTap.suppressSelfGenerated(for: interval)
+        }
+        engine.methodResolver = { [weak self] bundleID in
+            self?.preferences.method(forApp: bundleID) ?? .keystroke
         }
         return engine
     }

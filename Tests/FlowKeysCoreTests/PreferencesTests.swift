@@ -129,3 +129,66 @@ final class PasteMethodPreferenceTests: XCTestCase {
         }
     }
 }
+
+/// Per-app delivery rules.
+///
+/// Word ignores a synthetic ⌘V however faithfully the key sequence is
+/// reproduced, and nothing observable from outside reveals whether an app
+/// read the pasteboard — so per-app rules, not auto-detection, are the
+/// mechanism. These tests pin how a rule resolves.
+final class PerAppPasteRuleTests: XCTestCase {
+
+    func testKnownOffendersDefaultToTyping() {
+        let prefs = Preferences.default
+        XCTAssertEqual(prefs.method(forApp: "com.microsoft.Word"), .typed)
+        XCTAssertEqual(prefs.method(forApp: "com.microsoft.Excel"), .typed)
+    }
+
+    func testOtherAppsUseTheGlobalDefault() {
+        let prefs = Preferences.default
+        XCTAssertEqual(prefs.method(forApp: "com.apple.TextEdit"), .keystroke)
+    }
+
+    func testUnknownAppUsesTheGlobalDefault() {
+        XCTAssertEqual(Preferences.default.method(forApp: nil), .keystroke)
+    }
+
+    func testGlobalTypedDefaultAppliesEverywhere() {
+        var prefs = Preferences.default
+        prefs.pasteMethod = .typed
+        XCTAssertEqual(prefs.method(forApp: "com.apple.TextEdit"), .typed)
+    }
+
+    func testAppCanBeAddedAndRemoved() {
+        var prefs = Preferences.default
+        prefs.typedApps.insert("com.example.Stubborn")
+        XCTAssertEqual(prefs.method(forApp: "com.example.Stubborn"), .typed)
+
+        prefs.typedApps.remove("com.example.Stubborn")
+        XCTAssertEqual(prefs.method(forApp: "com.example.Stubborn"), .keystroke)
+    }
+
+    func testTypedAppsRoundTrip() {
+        let suite = "flowkeys-apps-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        var prefs = Preferences.default
+        prefs.typedApps = ["com.a.One", "com.b.Two"]
+        prefs.save(to: defaults)
+        XCTAssertEqual(Preferences.load(from: defaults).typedApps, ["com.a.One", "com.b.Two"])
+    }
+
+    /// Removing every app must stick, rather than silently reverting to the
+    /// seeded defaults on next launch.
+    func testEmptiedListStaysEmpty() {
+        let suite = "flowkeys-empty-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        var prefs = Preferences.default
+        prefs.typedApps = []
+        prefs.save(to: defaults)
+        XCTAssertTrue(Preferences.load(from: defaults).typedApps.isEmpty)
+    }
+}

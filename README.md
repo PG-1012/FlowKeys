@@ -101,12 +101,18 @@ rm -rf ~/Library/Developer/Xcode/DerivedData/FlowKeys-*
 make install && open /Applications/FlowKeys.app
 ```
 
-**An app shows the list but nothing pastes** (Microsoft Word is the known
-case). Some apps track modifier state from `flagsChanged` events rather than
-reading each event's flags. FlowKeys posts a full ⌘-down / V / ⌘-up sequence
-for exactly this reason, but if an app still ignores it, switch
-**Settings → Pasting → Deliver text by → Type the text**. That synthesizes the
-characters directly and does not depend on the app's paste handling at all.
+**An app shows the list but nothing pastes.** Some apps ignore a synthetic
+⌘V entirely. Microsoft Office is the known case and is handled out of the
+box — Word, Excel, PowerPoint and OneNote get typed text automatically.
+
+For anything else, open the FlowKeys menu while that app is frontmost and
+tick **Always type in <app>**, or add it under **Settings → Pasting → Always
+type in these apps**.
+
+Why a list and not automatic detection: nothing observable tells you whether
+an app read the pasteboard. `changeCount` does not move on reads, and there
+is no way to see into the target document. Any "did that work?" check would
+be a guess, so the rule is explicit instead.
 
 **Nothing pastes at all, in any app, but "Type the text" works.** The event
 tap is swallowing FlowKeys' own synthetic ⌘V. Events posted to
@@ -212,7 +218,7 @@ The interaction logic lives in `FlowKeysCore` with no AppKit imports, so the
 behaviour can be tested without a running app or any permissions:
 
 ```bash
-make test        # 59 tests
+make test        # 66 tests
 ```
 
 CI runs the suite, a release build and a bundle verification on every push.
@@ -261,9 +267,9 @@ Rough edges worth knowing about:
   signature, and an ad-hoc signature changes on every rebuild. So a rebuild
   orphans the old grant *and* leaves a stale duplicate entry in System
   Settings. Run `make reset-permission` to clear both, then grant once more.
-- **Delivery is app-dependent.** Synthetic ⌘V works nearly everywhere, but
-  some apps ignore it; the "Type the text" method is the fallback. The
-  clipboard-restore window is likewise a timing guess and is now adjustable.
+- **Delivery is app-dependent.** Synthetic ⌘V works nearly everywhere;
+  Microsoft Office ignores it and gets typed text instead. Typed delivery is
+  plain text only, so formatting is lost in those apps.
 - **No signed release build.** Distributing a `.app` others can open without
   Gatekeeper warnings needs a paid Apple Developer account for notarization.
   Until then, building from source is the supported path.

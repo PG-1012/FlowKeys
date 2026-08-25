@@ -33,6 +33,13 @@ public struct Preferences: Equatable, Sendable {
     public var persistHistory: Bool
     /// How to deliver the text. See `PasteMethod`.
     public var pasteMethod: PasteMethod = .keystroke
+    /// Bundle identifiers that always get typed text, whatever the default is.
+    ///
+    /// Some apps ignore a synthetic ⌘V no matter how faithfully the key
+    /// sequence is reproduced. There is no way to detect that from outside —
+    /// nothing observable says whether an app read the pasteboard — so the
+    /// only honest mechanism is a per-app rule.
+    public var typedApps: Set<String> = Preferences.knownTypedApps
     /// How long to wait before restoring the previous clipboard. Apps that
     /// read the pasteboard lazily (Microsoft Word is the usual example) need
     /// a longer window than the default.
@@ -50,7 +57,22 @@ public struct Preferences: Equatable, Sendable {
         self.persistHistory = persistHistory
     }
 
+    /// Apps known to ignore synthetic ⌘V. Seeded so the common cases work
+    /// without the user having to discover the setting.
+    public static let knownTypedApps: Set<String> = [
+        "com.microsoft.Word",
+        "com.microsoft.Excel",
+        "com.microsoft.Powerpoint",
+        "com.microsoft.onenote.mac",
+    ]
+
     public static let `default` = Preferences()
+
+    /// Which delivery method applies to a given frontmost app.
+    public func method(forApp bundleID: String?) -> PasteMethod {
+        if let bundleID, typedApps.contains(bundleID) { return .typed }
+        return pasteMethod
+    }
 
     /// Bounds the settings UI enforces, and that `load` clamps to, so a
     /// hand-edited defaults plist cannot put the app in a silly state.
@@ -67,6 +89,7 @@ public struct Preferences: Equatable, Sendable {
         static let forgetAfterDays = "forgetAfterDays"
         static let pasteMethod = "pasteMethod"
         static let restoreDelay = "restoreDelay"
+        static let typedApps = "typedApps"
     }
 
     public static let restoreDelayRange = 0.1...1.5
@@ -103,6 +126,11 @@ public struct Preferences: Equatable, Sendable {
             prefs.restoreDelay = min(max(defaults.double(forKey: Key.restoreDelay),
                                          restoreDelayRange.lowerBound), restoreDelayRange.upperBound)
         }
+        if let stored = defaults.array(forKey: Key.typedApps) as? [String] {
+            // An explicitly emptied list must stay empty, so only fall back to
+            // the seed when the key has never been written.
+            prefs.typedApps = Set(stored)
+        }
         return prefs
     }
 
@@ -114,6 +142,7 @@ public struct Preferences: Equatable, Sendable {
         defaults.set(forgetAfterDays, forKey: Key.forgetAfterDays)
         defaults.set(pasteMethod.rawValue, forKey: Key.pasteMethod)
         defaults.set(restoreDelay, forKey: Key.restoreDelay)
+        defaults.set(Array(typedApps).sorted(), forKey: Key.typedApps)
     }
 
     public static var storageURL: URL {

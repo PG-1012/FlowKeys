@@ -12,6 +12,8 @@ final class PasteEngine {
     /// overlap, or an app tracking modifier state sees them interleaved.
     private static let settleDelay: TimeInterval = 0.03
 
+    /// Resolved per paste, since it depends on which app is frontmost.
+    var methodResolver: ((String?) -> PasteMethod)?
     private let method: PasteMethod
     /// Called just before any synthetic event is posted, so the event tap can
     /// ignore what we are about to generate.
@@ -31,10 +33,20 @@ final class PasteEngine {
     /// our writes apart from a real user copy.
     private(set) var lastSelfWriteChangeCount: Int = -1
 
-    func paste(_ item: ClipboardItem, completion: (() -> Void)? = nil) {
+    /// - Parameter targetApp: bundle identifier of the app being pasted into.
+    ///   Delivery is chosen per app, because some apps ignore a synthetic ⌘V
+    ///   and nothing observable reveals that from outside.
+    func paste(
+        _ item: ClipboardItem,
+        into targetApp: String? = nil,
+        completion: (() -> Void)? = nil
+    ) {
+        let method = methodResolver?(targetApp) ?? self.method
+        Log.paste.debug(
+            "paste into \(targetApp ?? "unknown", privacy: .public) via \(String(describing: method), privacy: .public)"
+        )
         // Typing bypasses the pasteboard entirely, so it neither disturbs the
         // user's clipboard nor depends on the target app's paste handling.
-        Log.paste.debug("paste requested, method=\(String(describing: self.method), privacy: .public)")
         if method == .typed {
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleDelay) {
                 self.typeText(item.text)
