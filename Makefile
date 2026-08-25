@@ -8,20 +8,25 @@ APP      := FlowKeys.app
 CONFIG   := release
 BIN      := .build/$(CONFIG)/FlowKeys
 
-.PHONY: all app run test clean install reset-permission icon
+.PHONY: all build app run test clean install reset-permission icon
 
 all: app
 
 test:
 	swift test
 
-$(BIN):
-	swift build -c $(CONFIG)
+# Always delegate to swift build rather than treating $(BIN) as an up-to-date
+# file target. A bare `$(BIN):` rule with no prerequisites makes `make` skip
+# the compile whenever the binary already exists, which silently ships a stale
+# binary on every subsequent `make app` / `make install`. swift build is
+# incremental, so running it unconditionally costs nothing.
+build:
+	@swift build -c $(CONFIG)
 
 icon:
 	@python3 Tools/make_icon.py Resources/FlowKeys.icns
 
-app: $(BIN)
+app: build
 	@rm -rf $(APP)
 	@mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
 	@cp $(BIN) $(APP)/Contents/MacOS/FlowKeys
@@ -30,7 +35,7 @@ app: $(BIN)
 	@# Ad-hoc signature. Accessibility permission is keyed to this identity,
 	@# so a rebuild that changes it means re-granting permission once.
 	@codesign --force --deep --sign - $(APP)
-	@echo "Built $(APP)"
+	@echo "Built $(APP)  (binary $$(stat -f '%Sm' $(APP)/Contents/MacOS/FlowKeys))"
 
 run: app
 	@open $(APP)
@@ -39,6 +44,11 @@ install: app
 	@rm -rf /Applications/$(APP)
 	@cp -R $(APP) /Applications/
 	@echo "Installed to /Applications/$(APP)"
+	@# Guard against shipping a stale binary again: the installed copy must
+	@# match the one just built.
+	@cmp -s $(APP)/Contents/MacOS/FlowKeys /Applications/$(APP)/Contents/MacOS/FlowKeys \
+		&& echo "Verified: installed binary matches the build." \
+		|| (echo "MISMATCH: install did not take effect" && exit 1)
 
 # An ad-hoc signature changes on every rebuild, and macOS keys Accessibility
 # permission to it -- so a rebuild orphans the old grant and leaves a stale
