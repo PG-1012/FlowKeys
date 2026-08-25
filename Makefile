@@ -8,6 +8,12 @@ APP      := FlowKeys.app
 CONFIG   := release
 BIN      := .build/$(CONFIG)/FlowKeys
 
+# Ad-hoc by default. macOS keys Accessibility permission to the signature, so
+# an ad-hoc build has to be re-granted after every rebuild. Pass a stable
+# self-signed identity to avoid that:
+#   make install SIGN_IDENTITY="FlowKeys Local Signing"
+SIGN_IDENTITY ?= -
+
 .PHONY: all build app run test clean install reset-permission icon
 
 all: app
@@ -34,7 +40,7 @@ app: build
 	@cp Resources/FlowKeys.icns $(APP)/Contents/Resources/FlowKeys.icns
 	@# Ad-hoc signature. Accessibility permission is keyed to this identity,
 	@# so a rebuild that changes it means re-granting permission once.
-	@codesign --force --deep --sign - $(APP)
+	@codesign --force --deep --sign $(SIGN_IDENTITY) $(APP)
 	@echo "Built $(APP)  (binary $$(stat -f '%Sm' $(APP)/Contents/MacOS/FlowKeys))"
 
 run: app

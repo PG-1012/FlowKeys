@@ -112,9 +112,41 @@ characters directly and does not depend on the app's paste handling at all.
 clipboard lazily, after FlowKeys has already restored your previous contents.
 Raise **Settings → Pasting → Restore after**, or turn the restore off.
 
-**The menu says it needs Accessibility access but you granted it.** You
-probably have stale entries from builds at other paths. `make
-reset-permission` clears them; grant once more afterwards.
+**System Settings shows FlowKeys enabled, but the app still says it needs
+access.** The permission entry is keyed to the app's *code signature*, not its
+name or path. FlowKeys is ad-hoc signed, so every rebuild produces a new
+signature and orphans the previous entry — which stays in the list, still
+switched on, no longer matching the running binary. Toggling it does nothing.
+
+The menu tells you which case you are in: "Access looks granted, but macOS
+refused" means the entry is stale. Fix it by removing and re-adding:
+
+1. Select FlowKeys in Accessibility, press **−**
+2. Press **+**, add `/Applications/FlowKeys.app`
+
+Or from the terminal:
+
+```bash
+make reset-permission     # clears every FlowKeys entry
+```
+
+### Making the permission stick across rebuilds
+
+Signing with a stable identity instead of ad-hoc means the entry survives
+rebuilds. Create a self-signed code-signing certificate once:
+
+1. Open **Keychain Access** → menu **Certificate Assistant** → *Create a
+   Certificate…*
+2. Name it `FlowKeys Local Signing`, Identity Type *Self Signed Root*,
+   Certificate Type **Code Signing**. Create it.
+3. Build with it:
+
+```bash
+make install SIGN_IDENTITY="FlowKeys Local Signing"
+```
+
+Grant Accessibility once afterwards and it stays granted through future
+rebuilds.
 
 ---
 

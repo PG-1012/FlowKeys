@@ -287,18 +287,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func populate(_ menu: NSMenu) {
         menu.removeAllItems()
 
-        if !EventTap.hasAccessibilityPermission || !eventTap.isRunning {
+        // Distinguish "never granted" from "granted but macOS still refuses",
+        // because the fixes are completely different and the second case looks
+        // like the app is broken: System Settings shows FlowKeys enabled while
+        // the tap silently fails.
+        if !eventTap.isRunning {
+            let granted = EventTap.hasAccessibilityPermission
+            let title = granted
+                ? "⚠︎ Access looks granted, but macOS refused"
+                : "⚠︎ Needs Accessibility access"
             let warning = NSMenuItem(
-                title: "⚠︎ Needs Accessibility access", action: #selector(openAccessibility), keyEquivalent: ""
+                title: title, action: #selector(openAccessibility), keyEquivalent: ""
             )
             warning.target = self
             menu.addItem(warning)
-            let hint = NSMenuItem(
-                title: "    Already enabled? Quit and reopen FlowKeys.",
-                action: nil, keyEquivalent: ""
+
+            for line in granted ? Self.staleEntryHelp : Self.notGrantedHelp {
+                let hint = NSMenuItem(title: "    " + line, action: nil, keyEquivalent: "")
+                hint.isEnabled = false
+                menu.addItem(hint)
+            }
+
+            let recheck = NSMenuItem(
+                title: "Check Again", action: #selector(recheckPermission), keyEquivalent: ""
             )
-            hint.isEnabled = false
-            menu.addItem(hint)
+            recheck.target = self
+            menu.addItem(recheck)
             menu.addItem(.separator())
         }
 
@@ -430,6 +444,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func clearHistory() {
         store.clear()
+        refreshStatusItem()
+    }
+
+    /// The permission entry is keyed to the app's code signature. FlowKeys is
+    /// ad-hoc signed, so every rebuild produces a new signature and orphans
+    /// the old entry — which stays visible and switched on while no longer
+    /// matching the running binary. Toggling it does nothing; it has to be
+    /// removed and re-added.
+    private static let staleEntryHelp = [
+        "The entry in System Settings is from an older build.",
+        "Select FlowKeys in the list, press \u{2212} to remove it,",
+        "then press + and add /Applications/FlowKeys.app.",
+    ]
+
+    private static let notGrantedHelp = [
+        "Enable FlowKeys under Privacy & Security \u{203A} Accessibility.",
+    ]
+
+    @objc private func recheckPermission() {
+        if eventTap.start() {
+            refreshStatusItem()
+            return
+        }
+        startPermissionPolling()
         refreshStatusItem()
     }
 
